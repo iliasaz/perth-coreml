@@ -135,6 +135,37 @@ Cross-detection passes both ways on every clip in the corpus (Python's detector 
 Swift-watermarked audio, and vice versa), and output lengths match exactly under
 `.pythonParity`.
 
+### On device, and on the Neural Engine
+
+The same comparison run on an iPhone 17 Pro Max (iOS 26.5.1, Release build) by `repro/PerthProbe`,
+over five seconds of speech:
+
+| input | tier | apply | result |
+|---|---|---|---|
+| 32 kHz | fp32 / `cpuOnly` | 16 ms | cos 1.0, SNR 123.8 dB, detect 1.0 |
+| 32 kHz | fp16 / ANE | **8 ms** | cos 0.9999936, detect 0.9993 → 1 |
+| 24 kHz | fp32 / `cpuOnly` | 65 ms | SNR 107.5 dB, detect 1.0 |
+| 24 kHz | fp16 / ANE | 50 ms | cos 0.9999934, detect 0.9993 → 1 |
+
+The fp32 tier reproduces the Mac's 123.8 dB exactly on device. There is no iPhone-versus-Mac
+Neural Engine numeric surprise here, which is not something to take for granted — it holds because
+these are plain convolutions, with no fused-attention kernel whose behaviour can differ between the
+two ANE generations.
+
+**Neural Engine residency is proven, not inferred.** Asking for `.cpuAndNeuralEngine` is only a
+hint; CoreML is free to ignore it. An Instruments Core ML trace records ANE *hardware intervals*,
+and both models show `Prediction` intervals on the Neural Engine — a model that compiled for the
+ANE but silently fell back to CPU or GPU would show a `Load` interval with **zero** predictions:
+
+| model | ANE load | ANE prediction |
+|---|---|---|
+| `PerthEncoder` | 4.1 ms | **0.3 ms** |
+| `PerthDecoder` | 14.9 ms | **1.2 ms** |
+
+So the encoder — the only model `applyWatermark` needs — watermarks five seconds of audio in
+0.3 ms of Neural Engine time. Reproduce with `xcrun xctrace record --template "Core ML"` against
+`repro/PerthProbe`; see `docs/architecture.md`.
+
 **Literal byte-for-byte identity with stock Python Perth is not achievable, and that's expected,
 not a bug.** PyTorch links Sleef for its transcendental math (`log10`, `atan2`, `cos`/`sin`, `pow`);
 Apple links libm. vDSP's FFT sums the same numbers in a different radix decomposition than

@@ -211,14 +211,52 @@ assuming it would be fine. Each is called out in the source at the point where i
 
 ## The validation ladder
 
-Three gates, each isolating a different layer of the port from the ones above it. All three run
-against `perth.PerthImplicitWatermarker` (stock Python Perth) as ground truth.
+Four gates, each isolating a different layer of the port from the ones above it. All four run
+against `perth.PerthImplicitWatermarker` (stock Python Perth) as ground truth. They are ordered so
+the cheapest disconfirming experiment runs first: Gate 1 needs no CoreML, Gate 2 no Swift, Gate 3
+no device.
 
 | Gate | What it validates | Script | fp32 threshold | fp16/ANE threshold |
 |---|---|---|---|---|
 | 1 | The windowed/tiled conv stack, still executing in **PyTorch** (no CoreML involved) — isolates "did we decompose the model correctly" from "did CoreML convert it faithfully." | `converter/validate_decomposition.py` | `apply()` matches stock Perth with `max\|err\| == 0.0`, exactly, across window sizes {256, 512, 1024} and six signal lengths | `detect()` agrees with stock Perth to `\|Δ\| < 1e-5` pre-rounding, and the rounded decision is identical (both-NaN counts as agreement) |
 | 2 | The **saved `.mlpackage` files** (not the in-memory conversion) driven through the real host pipeline, across `cpuOnly` and `ALL` compute units | `converter/validate_coreml.py` | apply `max\|err\| ≤ 1e-5`; rounded detect decision matches; cross-detection passes both ways (each side's detector accepts the other's watermarked audio) | `cos ≥ 0.9999`; `\|ΔSNR\| ≤ 0.3` dB vs Python; rounded detect decision matches; cross-detection passes both ways |
 | 3 | The **compiled `perth-cli` binary** against stock Python, on real speech, at native 32 kHz and at 24 kHz (resampler in the loop) | `converter/validate_swift.py` | output length matches Python's exactly; `SNR ≥ 90` dB; rounded cross-detection matches | output length matches Python's exactly; `cos ≥ 0.9999`; rounded cross-detection matches |
+| 4 | The package **on a real iPhone**, across every compute unit, against fixtures dumped from stock Python | `repro/PerthProbe` | length matches; `cos ≥ 0.9999`; detect rounds to 1 | same, plus Neural Engine residency proven from a hardware trace |
+
+### Gate 4: the device, and proving ANE residency
+
+A Mac cannot settle either half of Gate 4. iPhone ANE numerics are not Mac ANE numerics — a sibling
+project measured cosine 0.9999 on Mac and 0.9828 on device for the same graph — and asking for
+`MLComputeUnits.cpuAndNeuralEngine` is only a *hint* that CoreML may ignore, so "it ran on the ANE"
+cannot be inferred from the code that requested it.
+
+`repro/PerthProbe` is an iOS app that links the real package (via a local SPM reference, so there is
+no source drift), bundles fixtures dumped by `converter/dump_device_fixtures.py` from **stock Python
+Perth** — not from our own CoreML models, which would be grading its own homework — and runs every
+precision × compute-unit pair. Build, install and run it with `xcodebuild` /
+`xcrun devicectl device process launch --console`; results are printed with `print` + `fflush`,
+because `os.Logger` output never reaches the console.
+
+Residency itself is settled with an Instruments trace:
+
+```
+xcrun xctrace record --device <udid> --template "Core ML" --output perth.trace \
+    --time-limit 45s --env PROBE_ONLY=fp16:ane --env PROBE_STAY=1 \
+    --launch -- com.iliasaz.PerthProbe
+```
+
+The ANE **hardware-interval** table is the ground truth. On an iPhone 17 Pro Max both models show
+`Prediction` intervals on the Neural Engine (`PerthEncoder` 0.3 ms, `PerthDecoder` 1.2 ms); a model
+that compiled for the ANE and then fell back would show a `Load` interval with **zero** predictions.
+Two things will mislead you when reading that trace: the CoreML *signpost* table's `ran on:` verdict
+reports CPU here, because the only phases it can name are CPU-side glue (input copy, output
+transformation, input validation), and the large `metal-gpu-intervals` count is SwiftUI drawing the
+results on screen, not the model.
+
+Two traps in the probe harness itself, both of which read like CoreML failures and are not:
+`String(format:)` with `%s` and a Swift `String` is undefined behaviour and killed the app
+mid-probe; and a SwiftUI app never terminates on its own, so `devicectl --console` blocks forever
+unless the probe calls `exit(0)` when it finishes (`PROBE_STAY=1` suppresses that for tracing).
 
 Gate 2's own numbers, measured against the built packages: fp32/`cpuOnly` apply reaches
 `max|err| = 2.7e-07` (the fp32 noise floor); fp16/`ALL` reaches `cos = 0.999997` with identical
