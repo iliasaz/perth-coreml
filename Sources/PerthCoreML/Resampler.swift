@@ -57,15 +57,25 @@ enum Resampler {
 
     /// 24 kHz -> 32 kHz on the apply path (soxr_hq-equivalent).
     ///
-    /// The trailing-zero quirk is real and must be reproduced: soxr's natural output is
-    /// `floor(n*4/3)`, but librosa `fix_length`s it up to `ceil(n*4/3)` **by appending a zero**.
-    /// That fires for every `n` with `n % 3 == 1`, i.e. a third of all input lengths.
+    /// The trailing-zero quirk is real and must be reproduced: soxr's own output is
+    /// `round(n*4/3)`, but librosa asks `fix_length` for `ceil(n*4/3)` and makes up the shortfall
+    /// **by appending a zero**. So the zero appears only when the exact ratio rounds DOWN, i.e.
+    /// when `n % 3 == 1` -- a third of all input lengths. `n % 3 == 2` rounds UP and ends on a
+    /// real sample; zeroing it too would put a 6e-3 error in the last sample.
     static func up24to32Apply(_ x: [Float]) -> [Float] {
         var y = resample(x, PerthAssets.hqUp24to32)
-        if (4 * x.count) % 3 != 0, let last = y.indices.last {
+        if roundsDown(x.count, up: 4, down: 3), let last = y.indices.last {
             y[last] = 0          // librosa's fix_length pads with a zero, not with a real sample
         }
         return y
+    }
+
+    /// Whether `n * up / down` rounds down, which is exactly when librosa's `fix_length` has to
+    /// append a zero to reach the `ceil` it asked soxr for. soxr rounds halves UP, so an exact
+    /// half is not a shortfall.
+    private static func roundsDown(_ n: Int, up: Int, down: Int) -> Bool {
+        let rem = (n * up) % down
+        return rem != 0 && 2 * rem < down
     }
 
     /// 32 kHz -> 24 kHz on the apply path (soxr_hq-equivalent).

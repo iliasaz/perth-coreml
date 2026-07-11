@@ -1,0 +1,16 @@
+{
+  "sr32": {
+    "n_in": 160000,
+    "n_out": 160000,
+    "detect_watermarked": 1.0,
+    "detect_clean": 0.0
+  },
+  "sr24": {
+    "n_in": 120000,
+    "n_out": 120000,
+    "detect_watermarked": 1.0,
+    "detect_clean": 0.0
+  },
+  "source": "Abigail.wav",
+  "note": "expected_* come from stock Python Perth on CPU, not from CoreML"
+}

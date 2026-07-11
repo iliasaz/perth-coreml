@@ -10,3 +10,6 @@ DerivedData/
 .swiftpm/
 scratch/
 scratch/parity/
+repro/PerthProbe/build/
+repro/PerthProbe/PerthProbe/Models/
+scratch/*.trace

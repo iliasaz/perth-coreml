@@ -29,14 +29,21 @@ final class PerthModels {
         decoder = try PerthModels.load("PerthDecoder\(suffix)", in: directory, config: cfg)
     }
 
-    /// Loads a package, reusing a persisted `.mlmodelc` at a STABLE path.
+    /// Loads a model, from a pre-compiled `.mlmodelc` if one is there, otherwise by compiling the
+    /// `.mlpackage` once and persisting the result at a STABLE path.
     ///
-    /// `MLModel.compileModel(at:)` returns a fresh `tmp/<UUID>.mlmodelc` on every call, and the
-    /// ANE's AOT cache is keyed on the compiled model's identity -- so a fresh path each launch
-    /// means a cache miss and a full ANE recompile every single launch. Persisting the compiled
-    /// model at a stable path is what makes warm loads warm.
+    /// The stable path matters more than it looks. `MLModel.compileModel(at:)` hands back a fresh
+    /// `tmp/<UUID>.mlmodelc` on every call, and the ANE's ahead-of-time cache is keyed on the
+    /// compiled model's identity -- so a new path each launch is a guaranteed cache miss and a
+    /// full ANE recompile, every single launch. An app that ships an Xcode-compiled `.mlmodelc`
+    /// in its bundle skips all of this.
     private static func load(_ name: String, in dir: URL,
                              config: MLModelConfiguration) throws -> MLModel {
+        let compiled = dir.appendingPathComponent("\(name).mlmodelc")
+        if FileManager.default.fileExists(atPath: compiled.path) {
+            return try MLModel(contentsOf: compiled, configuration: config)
+        }
+
         let pkg = dir.appendingPathComponent("\(name).mlpackage")
         guard FileManager.default.fileExists(atPath: pkg.path) else {
             throw PerthError.modelNotFound(name: name, directory: dir)
