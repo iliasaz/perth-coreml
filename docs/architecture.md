@@ -199,11 +199,18 @@ assuming it would be fine. Each is called out in the source at the point where i
   flips mask bits, and the actual gate is "our detector agrees with Python's detector," which
   uses `resample_poly`. `Resampler.swift` keeps the two filter pairs (`hqUp24to32`/`hqDown32to24`
   vs `polyUp24to32`) strictly on their respective paths.
-- **librosa pads with a zero sample when the 24→32 kHz ratio doesn't divide evenly.** soxr's
-  natural output length is `floor(n·4/3)`; librosa's `fix_length` pads up to `ceil(n·4/3)` by
-  appending a literal zero whenever `n % 3 == 1` — a third of all possible input lengths.
-  `Resampler.up24to32Apply` reproduces that by forcing the last output sample to zero under the
-  same condition, rather than letting the FIR compute whatever value falls out of the filter.
+- **librosa pads with a zero sample, but only when the true ratio rounds *down*, not whenever
+  it's inexact.** soxr's own output length is `round(n·4/3)`; librosa asks `fix_length` for
+  `ceil(n·4/3)` and makes up any shortfall **by appending a zero**. Those two only disagree when
+  `n·4/3` rounds down to reach soxr's answer — `Resampler.roundsDown(n:up:down:)` computes this
+  as `rem = (n·up) % down; rem != 0 && 2·rem < down` (soxr rounds an exact half *up*, so a true
+  half is never a shortfall). For the 24→32 kHz leg specifically that collapses to `n % 3 == 1`
+  — a third of all input lengths — but **`n % 3 == 2` rounds up and ends on a real, computed
+  sample**, and zeroing it too would be wrong, not just imprecise: verified against librosa,
+  `n = 24001` (`≡ 1 mod 3`) ends on `+0.0`, while `n = 24002` (`≡ 2 mod 3`) ends on `−0.229`, a
+  genuine non-zero value. `Resampler.up24to32Apply` calls `roundsDown` rather than testing
+  `n % 3 == 1` directly, so the general rule — not the coincidence that it simplifies to mod-3 on
+  this one leg — is what's actually encoded.
 - **`AVAudioFile.read(into:)` does not promise to fill the buffer in one call.** On a plain
   float32 WAV, a single `read(into:)` returned 159,724 of 160,000 requested frames — silently
   shortening the signal and shifting every downstream frame count. `PerthCLI.swift`'s `readWav`
@@ -270,3 +277,20 @@ noise, with a leading silence — which is sufficient for the DSP-parity checks 
 where the point is exercising the numeric pipeline under controlled conditions. Gate 3 uses real
 speech specifically because detector-score gates are meaningless on synthetic tones: Perth's own
 detector can score an *unwatermarked* tone-plus-noise clip high enough to round to "watermarked."
+
+### `swift test`, alongside the Python-driven gates
+
+`Tests/PerthCoreMLTests` ports the same claims into native `swift-testing`, so a contributor can
+verify the numerics without Python, a Perth checkout, or any `.mlpackage` at all. Seven suites —
+`STFT / ISTFT`, `Interpolate (torch-exact)`, `Tiling`, `Resampler`, `magmask`, `Score rounding and
+clipping`, plus a gated `End to end` suite — assert against fixtures generated straight from the
+libraries they reproduce (`converter/gen_test_fixtures.py`: torch's `F.interpolate`, torchaudio's
+`Spectrogram`/`InverseSpectrogram`, scipy's `resample_poly`, librosa's `soxr_hq` resample), not
+against other Swift code, on the theory that a Swift-vs-Swift test would have passed on every bug
+this port actually hit. Running `swift test` as shipped exercises 39 of those tests; the `End to
+end` suite (8 more, driving the real `PerthWatermarker` API through the actual CoreML models) is
+skipped unless `PERTH_MODEL_DIR` points at a directory holding the `.mlpackage`s:
+
+```
+PERTH_MODEL_DIR=$(pwd)/out swift test
+```

@@ -119,6 +119,18 @@ perth-cli <in.wav> --models <dir> [--out <o.wav>] [--detect] [--fp32] \
 - `--python-parity` selects `LengthPolicy.pythonParity` instead of the default
   `.preserveLength`, which matters when diffing output against stock Python Perth.
 
+## Tests
+
+`swift test` runs 39 offline unit tests across seven suites — STFT/ISTFT, interpolation, tiling,
+the resampler, `magmask`, and score rounding/clipping — asserted against fixtures generated
+directly from the Python libraries each piece reproduces (`converter/gen_test_fixtures.py`), not
+just against other Swift code. An eighth suite, `End to end`, drives the real `PerthWatermarker`
+API through the actual CoreML models; it's skipped unless `PERTH_MODEL_DIR` is set:
+
+```
+PERTH_MODEL_DIR=$(pwd)/out swift test
+```
+
 ## Accuracy
 
 Measured by `converter/validate_swift.py` (Gate 3: the real `perth-cli` binary vs. Python's
