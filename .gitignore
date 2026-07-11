@@ -1,0 +1,11 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+.build/
+out/
+DerivedData/
+*.mlmodelc
+*.xcuserdatad
+.swiftpm/
+scratch/
