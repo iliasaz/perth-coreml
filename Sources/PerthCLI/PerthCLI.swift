@@ -64,8 +64,15 @@ struct PerthCLI {
         let wm = try perth.applyWatermark(samples, sampleRate: sr)
         let ms = -t.timeIntervalSinceNow * 1000
         print("apply: \(wm.count) samples  (\(f(ms, 0)) ms, \(f(secs * 1000 / ms, 1))x realtime)")
-        print("verify: detect(watermarked) = "
-              + "\(try perth.getWatermark(wm, sampleRate: sr, round: false))")
+
+        // Embedding needs only PerthEncoder, so a decoder-less model dir is a legitimate way to
+        // deploy. Don't turn the courtesy round-trip check into a hard requirement for it.
+        do {
+            print("verify: detect(watermarked) = "
+                  + "\(try perth.getWatermark(wm, sampleRate: sr, round: false))")
+        } catch let e as PerthError {
+            print("verify: skipped (\(e))")
+        }
 
         if let outPath {
             try writeWav(wm, sampleRate: sr, to: outPath)

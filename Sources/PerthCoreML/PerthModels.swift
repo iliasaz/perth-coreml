@@ -8,7 +8,13 @@ import Foundation
 /// CoreML has no complex-number support and those ops are free next to the conv stacks anyway.
 final class PerthModels {
     private let encoder: MLModel
-    private let decoder: MLModel
+    private let decoderName: String
+    private let directory: URL
+    private let config: MLModelConfiguration
+    /// Loaded on first `decode`, not in `init`. Embedding a watermark needs only the encoder, and
+    /// the decoder is three times its size -- a caller that only ever calls `applyWatermark`
+    /// should not have to ship, download, or compile a model it never runs.
+    private var _decoder: MLModel?
     let window: Int
 
     /// - Parameters:
@@ -25,8 +31,19 @@ final class PerthModels {
         let cfg = MLModelConfiguration()
         cfg.computeUnits = computeUnits
         let suffix = useFP32 ? "_fp32" : ""
+        self.directory = directory
+        self.config = cfg
+        self.decoderName = "PerthDecoder\(suffix)"
         encoder = try PerthModels.load("PerthEncoder\(suffix)", in: directory, config: cfg)
-        decoder = try PerthModels.load("PerthDecoder\(suffix)", in: directory, config: cfg)
+    }
+
+    /// Throws `.modelNotFound` if the decoder package was never fetched -- which is a legitimate
+    /// way to deploy, so it is not an error until someone actually tries to detect.
+    private func decoder() throws -> MLModel {
+        if let d = _decoder { return d }
+        let d = try PerthModels.load(decoderName, in: directory, config: config)
+        _decoder = d
+        return d
     }
 
     /// Loads a model, from a pre-compiled `.mlmodelc` if one is there, otherwise by compiling the
@@ -78,7 +95,7 @@ final class PerthModels {
                 norm: (MLMultiArray, MLMultiArray),
                 fast: (MLMultiArray, MLMultiArray)) throws
     -> (slow: MLMultiArray, norm: MLMultiArray, fast: MLMultiArray) {
-        let out = try decoder.prediction(from: try MLDictionaryFeatureProvider(dictionary: [
+        let out = try decoder().prediction(from: try MLDictionaryFeatureProvider(dictionary: [
             "slow_x": slow.0, "slow_m": slow.1,
             "norm_x": norm.0, "norm_m": norm.1,
             "fast_x": fast.0, "fast_m": fast.1,

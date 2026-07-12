@@ -76,9 +76,40 @@ public final class PerthWatermarker {
   interpolation, the masked mean, softmax, the residual add) runs on the host. See
   `docs/architecture.md` for why the split is drawn there.
 
-## Producing the models
+## Getting the models
 
-The `.mlpackage`s aren't checked in. Build them from a local Perth checkout with:
+The weights are **not** in this repo, and they are not embedded in the Swift sources either.
+(`Sources/PerthCoreML/PerthAssets.swift` does carry base64 blobs, but those are only the 2048-tap
+STFT window and the resampler FIR tables — DSP constants, not network weights.) The conv weights
+live inside the `.mlpackage`s, which are published to a **private** Hugging Face repo:
+
+**`iliasaz/perth-coreml`** — mirroring how the rest of this stack ships models.
+
+| package | precision | size | needed for |
+|---|---|---|---|
+| `PerthEncoder.mlpackage` | fp16 | 4.5 MB | `applyWatermark` |
+| `PerthDecoder.mlpackage` | fp16 | 13 MB | `getWatermark` only |
+| `PerthEncoder_fp32.mlpackage` | fp32 | 9 MB | numeric-parity reference tier |
+| `PerthDecoder_fp32.mlpackage` | fp32 | 27 MB | numeric-parity reference tier |
+
+The repo is private, so pulling it needs an HF token with read access to it:
+
+```
+hf download iliasaz/perth-coreml --local-dir ./models
+perth-cli in.wav --models ./models --cu ane
+```
+
+**If you only embed watermarks, you only need `PerthEncoder`.** The decoder is for verification and
+QA. `PerthWatermarker.init` currently loads both eagerly, so a caller that never detects is paying
+13 MB it doesn't use — worth making lazy if that matters to you.
+
+All four packages declare `Float32` inputs and outputs regardless of tier; the fp16 packages differ
+only in `compute_precision` (fp16 weights and internal activations, with implicit casts at the graph
+boundary). `docs/architecture.md` has the full I/O contract.
+
+### Rebuilding them from source
+
+The packages are reproducible from a local Perth checkout — nothing about them is hand-tuned:
 
 ```
 cd converter
@@ -87,20 +118,66 @@ python convert_perth_coreml.py --window 1024 --out ../out
 
 This traces Perth's encoder and decoder conv stacks with `converter/perth_wrappers.py`'s
 static-window wrapper, converts each to an `mlprogram` at `minimum_deployment_target=iOS18`, and
-writes four packages plus `perth_assets.json` (the STFT window and hyperparameters, consumed by
-`converter/gen_swift_assets.py` to regenerate `Sources/PerthCoreML/PerthAssets.swift`). Measured
-sizes at `--window 1024`:
+writes the four packages plus `perth_assets.json`. If you change the checkpoint, also re-run
+`converter/gen_swift_assets.py` — it regenerates `PerthAssets.swift`, whose STFT window is read out
+of the checkpoint itself and is **not** interchangeable with a freshly computed Hann window (see
+`docs/architecture.md`).
 
-| package | precision | size on disk |
-|---|---|---|
-| `PerthEncoder.mlpackage` | fp16 compute | 4.7 MB |
-| `PerthEncoder_fp32.mlpackage` | fp32 | 9.5 MB |
-| `PerthDecoder.mlpackage` | fp16 compute | 14.0 MB |
-| `PerthDecoder_fp32.mlpackage` | fp32 | 28.0 MB |
+## Integrating with chatterbox-coreml
 
-All four packages declare `Float32` inputs/outputs regardless of precision tier — the `fp16`
-packages differ only in `compute_precision` (weights and internal activations in fp16, with
-implicit casts at the graph boundary). See `docs/architecture.md` for the full I/O contract.
+`chatterbox-coreml` does not watermark today. Wiring it up is a small change, and these are the
+instructions for making it — nothing here has been applied to that repo yet.
+
+**1. Add the dependency** in `chatterbox-coreml/Package.swift`, and to the `ChatterboxCoreML`
+target:
+
+```swift
+.package(url: "https://github.com/iliasaz/perth-coreml.git", branch: "main"),
+// ...
+.product(name: "PerthCoreML", package: "perth-coreml"),
+```
+
+**2. Fetch the weights** through the `ModelRepository` that's already there — it is a general
+HF-Hub downloader keyed off `HF_HOME`, so it needs no changes beyond a repo id and globs. Only the
+encoder is required to embed:
+
+```swift
+let perthDir = try await ModelRepository.download(
+    repoId: "iliasaz/perth-coreml",
+    matching: ["PerthEncoder.mlpackage/*", "PerthEncoder.mlpackage/**/*"]
+)
+let watermarker = try PerthWatermarker(modelDirectory: perthDir)   // .all -> ANE, fp16
+```
+
+Build it once and hold it; `init` compiles the model, and the compiled `.mlmodelc` is cached under
+Application Support keyed by package content, so only the first launch pays the ANE compile.
+
+**3. Call it on the final waveform.** Chatterbox emits 24 kHz, which is exactly the path validated
+end-to-end against Python, so the call is one line:
+
+```swift
+let watermarked = try watermarker.applyWatermark(samples, sampleRate: 24_000)
+```
+
+Python does this in `tts.py` on the complete utterance, immediately before returning; the Swift
+equivalent is `ChatterboxCoreMLModel.generate(_:voice:options:)`, just before the `[Float]` is
+wrapped into its `AVAudioPCMBuffer`.
+
+**Watermark the whole utterance, not each streamed chunk.** This is the one real decision in the
+integration and it is easy to get wrong. `generateStream` yields audio in chunks, and watermarking
+them individually is *not* the same operation as watermarking the utterance: `magmask` thresholds
+each frame against the loudest frame **in the signal it is given**, so a quiet chunk and a loud
+chunk would be gated against different references, and every chunk boundary becomes a seam in the
+watermark residual. Perth also refuses signals under 1025 samples at 32 kHz (~43 ms), which a short
+tail chunk can easily be. So either watermark once after the stream is concatenated (accepting that
+the watermark is not available until the utterance is complete), or accept that streamed audio goes
+out unwatermarked and only the batch `generate` path carries a mark. Do not paper over this by
+watermarking chunks and assuming detection still fires — if you go that way, measure it.
+
+**4. Verify against Python, not against yourself.** The meaningful check is cross-detection: feed
+the Swift-watermarked wav to stock Python `perth.PerthImplicitWatermarker().get_watermark(...)` and
+confirm it returns 1.0. `converter/validate_swift.py` in this repo already does exactly that at
+24 kHz and is the template.
 
 ## CLI usage
 
