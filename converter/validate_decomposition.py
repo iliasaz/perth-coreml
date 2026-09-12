@@ -9,11 +9,12 @@ Targets:
               we accumulate the masked-mean in float64 where stock uses a blocked fp32
               reduction, so the last couple of bits differ (in our favour).
 """
+import os
 import sys, argparse
 import numpy as np
 import torch
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 from perth_pipeline import PerthPipeline, TorchRunner

@@ -34,7 +34,7 @@ for n in [1,2,3,7,31,769,1000,4001,24000,24001,24002,144000]:
 print(f"  WORST max|Δ| across all cases = {worst:.3e}   (float32 eps = 1.19e-07)")
 
 print("\n=== T2) SWIFT hq-taps vs PYTHON soxr_hq (the apply path) ===")
-src,sr=librosa.load("/Users/ilia/Developer/chatterbox-coreml/russian-assets/alexandr_klyukvin.mp3",sr=None,mono=True)
+src,sr=librosa.load(os.environ.get("PERTH_VOICE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Chatterbox-TTS-Server", "voices", "Abigail.wav"),sr=None,mono=True)
 y24=librosa.resample(src,orig_sr=sr,target_sr=24000,res_type='soxr_vhq').astype(np.float32)[:24000*6]
 su=swift(y24,"up","hq")
 pu=librosa.resample(y24,orig_sr=24000,target_sr=32000,res_type='soxr_hq')

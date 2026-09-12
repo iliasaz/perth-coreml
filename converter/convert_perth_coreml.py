@@ -13,6 +13,7 @@ The fp32 packages are the "byte match" reference tier; the fp16 packages are the
 """
 
 from __future__ import annotations
+import os
 
 import argparse
 import json
@@ -23,7 +24,7 @@ import coremltools as ct
 import numpy as np
 import torch
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 from perth_wrappers import HALO, DecoderStacks, EncoderStack

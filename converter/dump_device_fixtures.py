@@ -4,6 +4,7 @@ Everything is raw little-endian float32 so Swift can read it with no dependency.
 outputs come from STOCK Python Perth, not from our CoreML models -- otherwise the probe would
 be grading its own homework.
 """
+import os
 import json
 import sys
 from pathlib import Path
@@ -11,11 +12,13 @@ from pathlib import Path
 import librosa
 import numpy as np
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 DST = Path(__file__).parent.parent / "repro/PerthProbe/PerthProbe/Fixtures"
-VOICE = "/Users/ilia/Developer/Chatterbox-TTS-Server/voices/Abigail.wav"
+# A synthetic voice from devnen/Chatterbox-TTS-Server (MIT), as a sibling checkout;
+# override with PERTH_VOICE.
+VOICE = os.environ.get("PERTH_VOICE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Chatterbox-TTS-Server", "voices", "Abigail.wav")
 SECONDS = 5
 
 
