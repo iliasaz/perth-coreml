@@ -1,0 +1,41 @@
+PerthCoreML
+Copyright (c) 2026 Ilia Sazonov
+
+This product is licensed under the MIT License. See LICENSE for the full text.
+
+
+## What this copyright covers, and what it does not
+
+**The code** — the Swift package (`Sources/`, `tests/`), the converter
+(`converter/`) and the documentation — is original work, © Ilia Sazonov,
+MIT-licensed under LICENSE. It is an independent reimplementation of Perth-Net
+Implicit for CoreML, not a translation of upstream's Python source.
+
+**The model weights are not covered by that copyright.** The CoreML packages this
+package loads — `PerthEncoder` and `PerthDecoder`, distributed at
+https://huggingface.co/iliasaz/perth-coreml — are *format conversions* of the
+checkpoint published with upstream Perth. They are derivative works that inherit
+its licence, and copyright in them stays with Resemble AI. The same applies to the
+STFT window and other constants baked into `PerthAssets.swift`, which are read out
+of that checkpoint rather than computed here.
+
+
+## Upstream
+
+### Perth (Perth-Net Implicit) — Resemble AI (MIT)
+
+  https://github.com/resemble-ai/Perth
+  Copyright (c) 2025 Resemble AI
+
+The watermarker this package ports: the architecture, the trained encoder and
+decoder networks, and the reference implementation every stage here is validated
+against. Published under the MIT licence, as is the `resemble-perth` distribution
+on PyPI.
+
+
+## Consumers
+
+  chatterbox-coreml   https://github.com/iliasaz/chatterbox-coreml
+
+On-device Chatterbox TTS for Apple Silicon, which uses this package to watermark
+every utterance it generates.

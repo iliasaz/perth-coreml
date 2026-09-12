@@ -125,59 +125,63 @@ of the checkpoint itself and is **not** interchangeable with a freshly computed 
 
 ## Integrating with chatterbox-coreml
 
-`chatterbox-coreml` does not watermark today. Wiring it up is a small change, and these are the
-instructions for making it — nothing here has been applied to that repo yet.
+**This is done.** [`chatterbox-coreml`](https://github.com/iliasaz/chatterbox-coreml)
+watermarks every utterance it generates, on by default, using this package — matching
+upstream Python chatterbox, which ends `ChatterboxTTS.generate` with an unconditional
+`apply_watermark(...)`. The integration lives in its `Sources/ChatterboxCoreML/Watermarker.swift`;
+what follows describes it, and is no longer a set of instructions for a change nobody has made.
 
-**1. Add the dependency** in `chatterbox-coreml/Package.swift`, and to the `ChatterboxCoreML`
-target:
+**Shape of it.** An `AudioWatermarking` protocol with a deliberately **non-throwing** contract: a
+watermarker that cannot mark a buffer returns it unchanged. Watermarking is an obligation of the
+product, not a correctness precondition of synthesis, so a 4.5 MB side model failing to load must
+never fail a user's generation — it logs `[watermark] UNAVAILABLE` and emits plain audio instead.
+The encoder is resolved from an explicit directory, then the chatterbox model directory, then
+`iliasaz/perth-coreml` on the Hub; only `PerthEncoder` (4.5 MB) is fetched, since the decoder is
+detection-only and this package loads it lazily. The knob is **load-time only** and the app exposes
+no switch — a watermark the end user can toggle per utterance is not a watermark.
 
-```swift
-.package(url: "https://github.com/iliasaz/perth-coreml.git", branch: "main"),
-// ...
-.product(name: "PerthCoreML", package: "perth-coreml"),
-```
+### The per-chunk question, resolved by measurement
 
-**2. Fetch the weights** through the `ModelRepository` that's already there — it is a general
-HF-Hub downloader keyed off `HF_HOME`, so it needs no changes beyond a repo id and globs. Only the
-encoder is required to embed:
+Earlier revisions of this file said flatly: *watermark the whole utterance, not each streamed
+chunk*, and warned that if you went the other way you had to measure it. chatterbox-coreml went
+the other way — `generateStream` hands each chunk to its caller before the next one exists, so
+waiting for a complete utterance would mean streaming audio that is never marked at all — and it
+measured it.
 
-```swift
-let perthDir = try await ModelRepository.download(
-    repoId: "iliasaz/perth-coreml",
-    matching: ["PerthEncoder.mlpackage/*", "PerthEncoder.mlpackage/**/*"]
-)
-let watermarker = try PerthWatermarker(modelDirectory: perthDir)   // .all -> ANE, fp16
-```
+The concern is real and worth restating: `magmask` thresholds every frame against the loudest frame
+**in the signal it is given** (`Spectral.magmask`, 5 % of peak energy), so a quiet chunk and a loud
+chunk are gated against different references, and every chunk boundary is a seam in the residual.
+That is a reason to check, not a reason to assume failure.
 
-Build it once and hold it; `init` compiles the model, and the compiled `.mlmodelc` is cached under
-Application Support keyed by package content, so only the first launch pays the ANE compile.
+Measured on chatterbox turbo, three sentences at `--sentence-pause 0.25` (190,010 samples), with
+this package's own `perth-cli --detect`:
 
-**3. Call it on the final waveform.** Chatterbox emits 24 kHz, which is exactly the path validated
-end-to-end against Python, so the call is one line:
+| signal | detector score |
+|---|---|
+| whole utterance, watermarked per chunk | **1.0** |
+| its three thirds, scored separately | 0.9995 / 1.0 / 1.0 |
+| whole utterance, watermarking disabled | **0.0** |
 
-```swift
-let watermarked = try watermarker.applyWatermark(samples, sampleRate: 24_000)
-```
+So per-chunk embedding survives detection here, whole and in pieces, with a clean negative control.
+It is pinned by a test on that side (`WatermarkEndToEndTests`) rather than left as a comment,
+because the failure mode is silent: the audio still plays, it just stops carrying a mark.
 
-Python does this in `tts.py` on the complete utterance, immediately before returning; the Swift
-equivalent is `ChatterboxCoreMLModel.generate(_:voice:options:)`, just before the `[Float]` is
-wrapped into its `AVAudioPCMBuffer`.
+**This result is specific to that pipeline's chunk sizes**, which are sentence-scale. It is not a
+general licence to watermark arbitrarily short fragments — see the next paragraph for the floor.
 
-**Watermark the whole utterance, not each streamed chunk.** This is the one real decision in the
-integration and it is easy to get wrong. `generateStream` yields audio in chunks, and watermarking
-them individually is *not* the same operation as watermarking the utterance: `magmask` thresholds
-each frame against the loudest frame **in the signal it is given**, so a quiet chunk and a loud
-chunk would be gated against different references, and every chunk boundary becomes a seam in the
-watermark residual. Perth also refuses signals under 1025 samples at 32 kHz (~43 ms), which a short
-tail chunk can easily be. So either watermark once after the stream is concatenated (accepting that
-the watermark is not available until the utterance is complete), or accept that streamed audio goes
-out unwatermarked and only the batch `generate` path carries a mark. Do not paper over this by
-watermarking chunks and assuming detection still fires — if you go that way, measure it.
+### One sharp edge, stated precisely
 
-**4. Verify against Python, not against yourself.** The meaningful check is cross-detection: feed
-the Swift-watermarked wav to stock Python `perth.PerthImplicitWatermarker().get_watermark(...)` and
-confirm it returns 1.0. `converter/validate_swift.py` in this repo already does exactly that at
-24 kHz and is the template.
+`applyWatermark` does **not** refuse a signal that is too short to transform. It returns it
+**unchanged**: `guard x32.count >= PerthConfig.minSamples32k else { return wav }`
+(`Sources/PerthCoreML/PerthWatermarker.swift:51`) — 1025 samples at 32 kHz, ~43 ms at Perth's
+native rate, ~32 ms of 24 kHz input. Nothing throws and nothing logs. `getWatermark` is the
+opposite: it throws `PerthError.signalTooShort` on the same input
+(`PerthWatermarker.swift:119`).
+
+The practical consequence for any chunked caller: a sub-43 ms tail chunk goes out silently
+unmarked. That is the right default for embedding — failing a generation over a 30 ms fragment
+would be absurd — but it means **a caller cannot infer from the absence of an error that its audio
+was marked**. Check the audio, or check the log.
 
 ## CLI usage
 
