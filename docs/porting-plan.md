@@ -330,7 +330,7 @@ n_out = ceil(n * up / down) = (n*up + down - 1) / down       // matches scipy AN
 ```
 Constants: `hq` halfLen = 400; 24→32 (`up=4,down=3`) `Lp=201`; 32→24 (`up=3,down=4`) `Lp=267`. Pad `Lp + down` zeros each side.
 
-**Two bugs to fix in the prototype at `/Users/ilia/Developer/perth-coreml/swift-resampler/`:**
+**Two bugs to fix in the prototype at `swift-resampler/`:**
 1. **librosa's `fix_length` appends a ZERO.** soxr's natural output is `floor(n·up/down)`; librosa pads to `ceil(...)` **with a zero** when `down ∤ n·up` — that is **1/3 of all input lengths** for 24→32 (`n24 % 3 == 1`). Measured `n24 = 24001`: `|last-sample Δ| = 2.38e-3`, `SNR drops to 68.9 dB`, `python_last == +0.0`. **Under `.pythonParity`, force `y[last] = 0` on the 24→32 leg when `(3 ∤ 4·n24)`.** The 32→24 leg in `apply` can never hit it (`out32` is a multiple of 320 and `4 | 320`). Add `n % 3 == 1` lengths to the cross-validation harness — they are currently absent from every test.
 2. **Double-rounding of the taps.** Swift does `Float(prototype[i] * Double(up))`; scipy does `h = firwin(...).astype(x.dtype)` **then** `h *= up`. For `up = 3` (the 32→24 direction) **22/81 taps differ by 1 ULP**. Round to `Float` **first**, then multiply.
 

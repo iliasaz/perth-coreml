@@ -7,6 +7,7 @@ The STFT window MUST come from the checkpoint: Perth's AudioProcessor is an nn.M
 load_state_dict overwrites torchaudio's freshly-computed hann with the buffer stored in
 perth_net_250000.pth.tar. The two differ by 1 ULP, which is visible in the output waveform.
 """
+import os
 import base64
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ import numpy as np
 import torch
 from scipy.signal import firwin
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 from resampler_study import resample_poly_manual

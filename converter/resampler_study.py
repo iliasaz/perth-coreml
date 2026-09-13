@@ -12,6 +12,7 @@ The question this answers: does that substitution break anything? Specifically -
 
 Also dumps the exact FIR taps scipy would design, so Swift needs no filter-design code.
 """
+import os
 import json
 import sys
 from pathlib import Path
@@ -21,7 +22,7 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import firwin, resample_poly, upfirdn
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 SR_IN, SR_PERTH = 24000, 32000
@@ -58,7 +59,7 @@ def resample_poly_manual(x, up, down):
 
 
 def main():
-    wav_path = "/Users/ilia/Developer/Chatterbox-TTS-Server/voices/Abigail.wav"
+    wav_path = os.environ.get("PERTH_VOICE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Chatterbox-TTS-Server", "voices", "Abigail.wav")
     y, sr = librosa.load(wav_path, sr=SR_IN, mono=True)
     y = y[: SR_IN * 6].astype(np.float32)
     print(f"real speech: {wav_path.split('/')[-1]}  {len(y)} samples @ {SR_IN} Hz "

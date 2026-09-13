@@ -9,6 +9,7 @@ artefact. Reports both tiers:
 
 Validate on BOTH cpuOnly and ALL: they diverge, and a bug hides if you only report one.
 """
+import os
 import argparse
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ import coremltools as ct
 import numpy as np
 import torch
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 from perth_pipeline import PerthPipeline

@@ -9,6 +9,7 @@ Tier 1 (fp32 / cpuOnly): numeric parity. Bitwise equality is not achievable and 
     agreement floor.
 Tier 2 (fp16 / ANE): functional equivalence + cross-detection.
 """
+import os
 import argparse
 import subprocess
 import sys
@@ -18,12 +19,12 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
 from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
 ROOT = Path(__file__).parent.parent
 CLI = ROOT / ".build/debug/perth-cli"
-VOICES = Path("/Users/ilia/Developer/Chatterbox-TTS-Server/voices")
+VOICES = Path(os.environ.get("PERTH_VOICES") or Path(__file__).resolve().parents[2] / "Chatterbox-TTS-Server" / "voices")
 
 
 def cos(a, b):

@@ -81,7 +81,7 @@ public final class PerthWatermarker {
 The weights are **not** in this repo, and they are not embedded in the Swift sources either.
 (`Sources/PerthCoreML/PerthAssets.swift` does carry base64 blobs, but those are only the 2048-tap
 STFT window and the resampler FIR tables — DSP constants, not network weights.) The conv weights
-live inside the `.mlpackage`s, which are published to a **private** Hugging Face repo:
+live inside the `.mlpackage`s, which are published to a Hugging Face repo:
 
 **`iliasaz/perth-coreml`** — mirroring how the rest of this stack ships models.
 
@@ -92,7 +92,7 @@ live inside the `.mlpackage`s, which are published to a **private** Hugging Face
 | `PerthEncoder_fp32.mlpackage` | fp32 | 9 MB | numeric-parity reference tier |
 | `PerthDecoder_fp32.mlpackage` | fp32 | 27 MB | numeric-parity reference tier |
 
-The repo is private, so pulling it needs an HF token with read access to it:
+The repo is public, so no token is needed:
 
 ```
 hf download iliasaz/perth-coreml --local-dir ./models
@@ -100,8 +100,8 @@ perth-cli in.wav --models ./models --cu ane
 ```
 
 **If you only embed watermarks, you only need `PerthEncoder`.** The decoder is for verification and
-QA. `PerthWatermarker.init` currently loads both eagerly, so a caller that never detects is paying
-13 MB it doesn't use — worth making lazy if that matters to you.
+QA, and it is loaded lazily — on the first `getWatermark` call (`PerthModels.decoder()`) — so a
+caller that only embeds never loads its 13 MB.
 
 All four packages declare `Float32` inputs and outputs regardless of tier; the fp16 packages differ
 only in `compute_precision` (fp16 weights and internal activations, with implicit casts at the graph

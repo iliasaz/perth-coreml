@@ -8,6 +8,7 @@ torchaudio Spectrogram(power=None, center=True, pad_mode='reflect', normalized=F
 InverseSpectrogram(length=None) are what Perth uses.
 """
 from __future__ import annotations
+import os
 
 import numpy as np
 
@@ -56,7 +57,7 @@ def _self_test():
     import torch
     from torchaudio.transforms import InverseSpectrogram, Spectrogram
     import sys
-    sys.path.insert(0, "/Users/ilia/Developer/Perth/src")
+    sys.path.insert(0, os.environ.get("PERTH_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Perth", "src"))
     from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker
 
     net = PerthImplicitWatermarker(device="cpu").perth_net
