@@ -100,8 +100,8 @@ perth-cli in.wav --models ./models --cu ane
 ```
 
 **If you only embed watermarks, you only need `PerthEncoder`.** The decoder is for verification and
-QA. `PerthWatermarker.init` currently loads both eagerly, so a caller that never detects is paying
-13 MB it doesn't use — worth making lazy if that matters to you.
+QA, and it is loaded lazily — on the first `getWatermark` call (`PerthModels.decoder()`) — so a
+caller that only embeds never loads its 13 MB.
 
 All four packages declare `Float32` inputs and outputs regardless of tier; the fp16 packages differ
 only in `compute_precision` (fp16 weights and internal activations, with implicit casts at the graph
